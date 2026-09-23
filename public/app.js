@@ -453,6 +453,10 @@ async function hint() {
 (async () => {
   await loadEvents();
   await hint();
-  const first = state.events.find(e => e.guest_count_loaded) || null;
+  // Open the soonest upcoming event that has guests loaded, else the most recent one.
+  const now = Date.now();
+  const loaded = state.events.filter(e => e.guest_count_loaded);
+  const upcoming = loaded.filter(e => e.start_at && new Date(e.start_at).getTime() >= now - 6 * 3600e3).sort((a, b) => a.start_at.localeCompare(b.start_at));
+  const first = upcoming[0] || loaded[0] || null;
   if (first) openEvent(first.api_id);
 })();
