@@ -33,6 +33,9 @@ function meProfile() {
 function model() {
   return settings.get("model") || DEFAULT_MODEL;
 }
+function selfId() {
+  return settings.get("self_user_api_id") || process.env.SELF_USER_API_ID || null;
+}
 
 // ---------- jobs ----------
 const jobs = new Map();
@@ -98,11 +101,13 @@ function assembleEvent(id) {
 async function pipelineGuests(job, id) {
   const ev = events.get(id);
   if (!cookie()) throw new Error("Add your Luma session cookie in Settings first.");
+  if (!ev.show_guest_list && !ev.is_host) throw new Error("The host hides the guest list for this event.");
   logJob(job, `fetching guest list for ${ev.name}`);
-  const gs = await getGuestList(ev.api_id, ev.ticket_key, cookie(), n => {
+  let gs = await getGuestList(ev.api_id, ev.ticket_key, cookie(), n => {
     job.done = n;
     job.message = `fetched ${n} guests`;
   });
+  if (selfId()) gs = gs.filter(g => g.user_api_id !== selfId());
   replaceGuests(id, gs);
   job.total = job.done = gs.length;
   logJob(job, `saved ${gs.length} guests`);
@@ -232,6 +237,7 @@ route("GET", "/api/settings", () => ({
   cookie_hint: cookie() ? cookie().slice(0, 6) + "…" : null,
   me: meProfile(),
   model: model(),
+  self_user_api_id: selfId(),
   has_anthropic_key: !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
 }));
 
@@ -246,6 +252,7 @@ route("PUT", "/api/settings", async req => {
   }
   if (typeof b.me === "string") settings.set("me", b.me);
   if (typeof b.model === "string" && b.model.trim()) settings.set("model", b.model.trim());
+  if (typeof b.self_user_api_id === "string") settings.set("self_user_api_id", b.self_user_api_id.trim() || null);
   return { ok: true };
 });
 

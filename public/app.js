@@ -68,7 +68,7 @@ function renderRail() {
         return `<button class="event-item ${e.api_id === state.current ? "active" : ""}" data-id="${esc(e.api_id)}">
           <div class="event-date"><b>${d ? d.getDate() : "?"}</b><span>${d ? d.toLocaleString(undefined, { month: "short" }) : ""}</span></div>
           <div><div class="event-name">${esc(e.name)}</div>
-          <div class="event-count">${e.guest_count_loaded ? `${e.guest_count_loaded} guests loaded` : e.guest_count != null ? `${e.guest_count} going` : ""}${e.is_host ? " · hosting" : ""}</div></div>
+          <div class="event-count">${e.guest_count_loaded ? `${e.guest_count_loaded} guests loaded` : e.guest_count != null ? `${e.guest_count} going` : ""}${e.is_host ? " · hosting" : ""}${!e.show_guest_list && !e.is_host ? " · list hidden" : ""}</div></div>
         </button>`;
       })
       .join("");
@@ -109,6 +109,7 @@ function renderEvent() {
   const parts = [fmtDate(ev.start_at), ev.location, ev.hosts?.length ? `hosted by ${ev.hosts.join(", ")}` : null].filter(Boolean);
   const status = guests.length
     ? `${guests.length} guests loaded${ev.guests_synced_at ? "" : " (featured only, pull the full list)"}`
+    : !ev.show_guest_list && !ev.is_host ? "host hides the guest list"
     : ev.guest_count != null ? `${ev.guest_count} going, guest list not loaded yet` : "guest list not loaded yet";
   $("#ev-sub").innerHTML = `${esc(parts.join(" · "))}<br>${esc(status)}${ev.slug ? ` · <a href="https://luma.com/${esc(ev.slug)}" target="_blank" rel="noreferrer">open on Luma</a>` : ""}`;
   $("#btn-run").textContent = guests.length ? (ranking ? "Rerun everything" : "Rank this room") : "Load guests and rank";
@@ -385,6 +386,7 @@ async function openSettings() {
   $("#s-cookie-state").textContent = s.has_cookie ? "Cookie saved." : "No cookie yet.";
   $("#s-me").value = s.me;
   $("#s-model").value = s.model;
+  $("#s-self").value = s.self_user_api_id || "";
   $("#s-key-state").textContent = s.has_anthropic_key ? "Anthropic key found in the environment." : "No ANTHROPIC_API_KEY found. Put it in roster/.env and restart.";
   $("#s-err").textContent = "";
   dlg.showModal();
@@ -393,7 +395,7 @@ $("#btn-settings").onclick = openSettings;
 $("#s-cancel").onclick = () => dlg.close();
 $("#settings-form").onsubmit = async e => {
   e.preventDefault();
-  const body = { me: $("#s-me").value, model: $("#s-model").value };
+  const body = { me: $("#s-me").value, model: $("#s-model").value, self_user_api_id: $("#s-self").value };
   if ($("#s-cookie").value.trim()) body.luma_cookie = $("#s-cookie").value.trim();
   try {
     await api("PUT", "/api/settings", body);

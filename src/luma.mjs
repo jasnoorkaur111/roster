@@ -97,6 +97,7 @@ function normalizeHomeEntry(e) {
     ticket_key: e.guest_info?.ticket_key || null,
     approval_status: e.guest_info?.approval_status || null,
     is_host: !!e.host_info || !!e.is_host,
+    show_guest_list: ev.show_guest_list !== false,
     hosts: (e.hosts || []).map(h => h.name).filter(Boolean),
     raw: e,
   };
@@ -139,6 +140,7 @@ export async function getEventPublic(slugOrId, cookie = null) {
     ticket_key: data.guest_data?.ticket_key || data.guest_info?.ticket_key || null,
     approval_status: data.guest_data?.approval_status || null,
     is_host: !!data.host_info,
+    show_guest_list: ev.show_guest_list !== false,
     hosts: (data.hosts || []).map(h => h.name).filter(Boolean),
     featured_guests: (data.featured_guests || []).map(normalizeGuest),
     raw: data,
@@ -195,9 +197,9 @@ function cleanHandle(h, kind) {
   let s = String(h).trim();
   s = s.replace(/^https?:\/\/(www\.)?/i, "");
   if (kind === "linkedin") {
-    s = s.replace(/^linkedin\.com\//i, "").replace(/\/$/, "");
-    if (!/^(in|company|school)\//i.test(s)) s = "in/" + s.replace(/^\/+/, "");
-    return s;
+    s = s.replace(/^linkedin\.com\//i, "").replace(/^\/+/, "").replace(/\/+$/, "");
+    if (!/^(in|company|school)\//i.test(s)) s = "in/" + s;
+    return s || null;
   }
   s = s
     .replace(/^(twitter|x|instagram|tiktok|youtube)\.com\//i, "")

@@ -39,20 +39,22 @@ db.exec(`
   );
 `);
 
+try { db.exec("ALTER TABLE events ADD COLUMN show_guest_list INTEGER DEFAULT 1"); } catch {}
+
 const q = {
   getSetting: db.prepare("SELECT value FROM settings WHERE key = ?"),
   setSetting: db.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"),
   upsertEvent: db.prepare(`
     INSERT INTO events (api_id, slug, name, start_at, end_at, location, cover_url, description, guest_count,
-      ticket_key, approval_status, is_host, hosts, source, json, synced_at)
+      ticket_key, approval_status, is_host, show_guest_list, hosts, source, json, synced_at)
     VALUES (@api_id, @slug, @name, @start_at, @end_at, @location, @cover_url, @description, @guest_count,
-      @ticket_key, @approval_status, @is_host, @hosts, @source, @json, @synced_at)
+      @ticket_key, @approval_status, @is_host, @show_guest_list, @hosts, @source, @json, @synced_at)
     ON CONFLICT(api_id) DO UPDATE SET
       slug = COALESCE(excluded.slug, slug), name = excluded.name, start_at = excluded.start_at,
       end_at = COALESCE(excluded.end_at, end_at), location = COALESCE(excluded.location, location),
       cover_url = COALESCE(excluded.cover_url, cover_url), description = COALESCE(excluded.description, description),
       guest_count = COALESCE(excluded.guest_count, guest_count), ticket_key = COALESCE(excluded.ticket_key, ticket_key),
-      approval_status = COALESCE(excluded.approval_status, approval_status), is_host = excluded.is_host,
+      approval_status = COALESCE(excluded.approval_status, approval_status), is_host = excluded.is_host, show_guest_list = excluded.show_guest_list,
       hosts = COALESCE(excluded.hosts, hosts), json = excluded.json, synced_at = excluded.synced_at
   `),
   listEvents: db.prepare("SELECT * FROM events ORDER BY start_at DESC"),
@@ -111,6 +113,7 @@ export function upsertEvent(ev, source) {
     ticket_key: ev.ticket_key ?? null,
     approval_status: ev.approval_status ?? null,
     is_host: ev.is_host ? 1 : 0,
+    show_guest_list: ev.show_guest_list === false ? 0 : 1,
     hosts: ev.hosts?.length ? JSON.stringify(ev.hosts) : null,
     source,
     json: JSON.stringify(stripRaw(ev)),
@@ -164,6 +167,7 @@ function rowEvent(r) {
   return {
     ...r,
     is_host: !!r.is_host,
+    show_guest_list: r.show_guest_list !== 0,
     hosts: r.hosts ? JSON.parse(r.hosts) : [],
     guest_count_loaded: q.countGuests.get(r.api_id)?.n ?? 0,
     json: undefined,
