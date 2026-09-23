@@ -76,7 +76,7 @@ a { color: inherit; }
 .section-head { display: flex; gap: 32px; align-items: baseline; margin-bottom: 14px; }
 .section-head h2 { font-size: 22px; flex-shrink: 0; }
 .section-head p { color: var(--ink-2); margin: 0; max-width: 70ch; font-size: 14px; }
-.top-row { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.top-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
 .pick { background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; text-align: left; padding: 0; display: flex; flex-direction: column; }
 .pick:hover, .pick:focus-visible { border-color: var(--badge); outline: none; }
 .pick .face { aspect-ratio: 1; width: 100%; background: var(--bg-3); position: relative; }
@@ -116,7 +116,7 @@ a { color: inherit; }
 .d-head .avatar { width: 112px; height: 112px; border-radius: 14px; font-size: 36px; }
 .d-head h2 { font-size: 22px; line-height: 1.1; }
 .d-head .headline { color: var(--ink-2); margin-top: 4px; }
-.d-head .conf { font-size: 12px; color: var(--ink-3); margin-top: 6px; }
+.d-head .conf { font-size: 12px; color: var(--ink-3); margin-top: 6px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .d-links { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .d-links a { font-size: 13px; color: var(--ink-2); text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 3px 8px; }
 .d-links a:hover { color: var(--ink); border-color: var(--ink-3); }

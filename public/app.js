@@ -195,7 +195,7 @@ function renderWall() {
     const score = g.profile?.relevance?.score ?? g.triage?.score;
     b.insertAdjacentHTML(
       "beforeend",
-      `<div class="txt"><div class="name">${esc(g.name)}${g.rank ? ` <span class="score hi">#${g.rank.rank}</span>` : ""}</div><div class="line">${esc(line)}</div></div>
+      `<div class="txt"><div class="name">${g.rank ? `<span class="score hi">#${g.rank.rank}</span> ` : ""}${esc(g.name)}</div><div class="line">${esc(line)}</div></div>
        <div class="score ${g.profile ? "deep" : ""} ${score >= 70 ? "hi" : ""}">${score ?? ""}</div>`,
     );
     frag.appendChild(b);
