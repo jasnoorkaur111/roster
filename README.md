@@ -16,7 +16,9 @@ Pipeline for an event:
 2. Deep web research on the top 25: role, company, what they are building or investing in, recent activity, sources, a public photo if one exists on a site they control.
 3. Final top 10 with a room strategy, why each person, what to say first, and the ask.
 
-Each guest gets a dossier you can open from the wall. Mark people as want-to-meet, met, or skip, and leave notes.
+Each guest gets a dossier you can open from the wall: headline, summary, sourced facts, recent activity, what they're into outside work when they share it publicly, and what you have in common. Mark people as want-to-meet, met, or skip, and leave notes.
+
+Nothing re-runs once it is saved. Scores, dossiers, and the top 10 live in SQLite; a person researched once is reused at every later event, and re-running an event only does the missing steps.
 
 ## Run it
 
@@ -55,7 +57,7 @@ npm install -g @anthropic-ai/claude-code
 claude          # sign in once, then quit
 ```
 
-That's it. Be aware it counts against your plan's usage: a 300-person event with the top 25 researched is a meaningful slice of a session's quota on Opus.
+That's it. Be aware it counts against your plan's usage. Per-person web research is the expensive step, so in this mode it runs on Sonnet by default while scoring and the final top 10 stay on Opus; both models are editable in Settings. A 300-person event with the top 25 researched is still a meaningful slice of a session's quota.
 
 **Anthropic API key (optional).** Pay per use instead. Put `ANTHROPIC_API_KEY=...` in `.env`, restart, and choose "Anthropic API key" in Settings. On Opus 5 a 300-person event with the top 25 researched costs about $5; roughly $0.12 per person deep-researched. Switch the model to `claude-sonnet-5` in Settings to cut that.
 
@@ -68,4 +70,5 @@ Neither option is billed for the other: in Claude Code mode the API key is strip
 - `src/db.mjs` SQLite: events, guests, triage, profiles, rankings, notes.
 - `src/server.mjs` HTTP API and background jobs.
 - `public/` the UI, plain HTML and JS.
+- `AGENTS.md` (and `CLAUDE.md`) setup checklist for coding agents asked to install this.
 - `me.example.md` template for the profile text. `me.md` (gitignored) is read as the default if you'd rather keep it in a file than in Settings.
