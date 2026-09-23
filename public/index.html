@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roster</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="brand">Roster</div>
+      <button class="ghost small" id="btn-settings" title="Settings">Settings</button>
+    </div>
+    <div class="rail-actions">
+      <button class="primary small" id="btn-sync">Pull my Luma events</button>
+      <form id="add-form" class="add-form">
+        <input id="add-url" placeholder="or paste a luma.com link" autocomplete="off">
+        <button class="ghost small" type="submit">Add</button>
+      </form>
+    </div>
+    <div class="rail-section" id="events-upcoming"><div class="rail-label">Upcoming</div><div class="event-list"></div></div>
+    <div class="rail-section" id="events-past"><div class="rail-label">Past</div><div class="event-list"></div></div>
+  </aside>
+
+  <main class="main" id="main">
+    <div class="empty" id="empty">
+      <h1>Who should I talk to tonight?</h1>
+      <p>Pull your Luma events, load a guest list, and Roster researches every person and picks the ten worth finding in the room.</p>
+      <p class="hint" id="empty-hint"></p>
+    </div>
+    <div id="event-view" hidden>
+      <header class="event-head">
+        <div class="event-meta">
+          <h1 id="ev-name"></h1>
+          <div class="event-sub" id="ev-sub"></div>
+        </div>
+        <div class="event-actions">
+          <button class="primary" id="btn-run">Load guests and rank</button>
+          <details class="more">
+            <summary>More</summary>
+            <div class="menu">
+              <button data-act="guests">Refetch guest list</button>
+              <button data-act="triage">Rescore everyone (quick)</button>
+              <button data-act="research">Research top 25 (web)</button>
+              <button data-act="rank">Re-pick top 10</button>
+              <button data-act="delete" class="danger">Remove event</button>
+            </div>
+          </details>
+        </div>
+      </header>
+      <div class="job" id="job" hidden>
+        <div class="job-bar"><div class="job-fill" id="job-fill"></div></div>
+        <div class="job-text"><span id="job-msg"></span><span id="job-cost"></span></div>
+      </div>
+
+      <section class="top" id="top" hidden>
+        <div class="section-head">
+          <h2>Find these ten</h2>
+          <p id="strategy"></p>
+        </div>
+        <div class="top-row" id="top-row"></div>
+      </section>
+
+      <section class="wall">
+        <div class="wall-tools">
+          <h2 id="wall-title">Everyone</h2>
+          <input id="search" placeholder="Search name, bio, company" autocomplete="off">
+          <div class="chips" id="chips"></div>
+        </div>
+        <div class="wall-grid" id="wall"></div>
+        <div class="wall-empty" id="wall-empty" hidden></div>
+      </section>
+    </div>
+  </main>
+
+  <aside class="dossier" id="dossier" hidden>
+    <button class="close" id="dossier-close" aria-label="Close">×</button>
+    <div class="dossier-body" id="dossier-body"></div>
+  </aside>
+</div>
+
+<dialog id="settings">
+  <form method="dialog" id="settings-form">
+    <h2>Settings</h2>
+    <label>Luma session cookie
+      <input id="s-cookie" placeholder="paste the value of luma.auth-session-key" autocomplete="off">
+      <small>luma.com → DevTools → Application → Cookies → <code>luma.auth-session-key</code>. Stored only in the local database. <span id="s-cookie-state"></span></small>
+    </label>
+    <label>Who I am and who I want to meet
+      <textarea id="s-me" rows="14"></textarea>
+      <small>This is what the ranking is scored against. Be specific about goals.</small>
+    </label>
+    <label>Model
+      <input id="s-model" placeholder="claude-opus-5">
+      <small id="s-key-state"></small>
+    </label>
+    <div class="dialog-actions">
+      <button class="ghost" value="cancel" type="button" id="s-cancel">Cancel</button>
+      <button class="primary" value="save" id="s-save">Save</button>
+    </div>
+    <p class="err" id="s-err"></p>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
