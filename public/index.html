@@ -24,6 +24,7 @@
     </div>
     <div class="rail-section" id="events-upcoming"><div class="rail-label">Upcoming</div><div class="event-list"></div></div>
     <div class="rail-section" id="events-past"><div class="rail-label">Past</div><div class="event-list"></div></div>
+    <button class="ghost small rail-toggle" id="rail-toggle" hidden></button>
   </aside>
 
   <main class="main" id="main">
@@ -44,7 +45,7 @@
             <summary>More</summary>
             <div class="menu">
               <button data-act="guests">Refetch guest list</button>
-              <button data-act="triage">Rescore everyone (quick)</button>
+              <button data-act="triage">Rescore everyone from scratch</button>
               <button data-act="research">Research top 25 (web)</button>
               <button data-act="rank">Re-pick top 10</button>
               <button data-act="delete" class="danger">Remove event</button>
@@ -92,15 +93,29 @@
     </label>
     <label>Who I am and who I want to meet
       <textarea id="s-me" rows="14"></textarea>
-      <small>This is what the ranking is scored against. Be specific about goals.</small>
+      <small>Every guest is scored against this text, so it is what makes the picks yours. Say who you are and list the kinds of people you want, in priority order.</small>
     </label>
+    <div class="draft-row">
+      <button class="ghost small" type="button" id="s-draft">Draft it from my Claude Code memory</button>
+      <small id="s-draft-state"></small>
+    </div>
     <label>My Luma user id
       <input id="s-self" placeholder="usr-…">
       <small>So you are left out of your own guest lists.</small>
     </label>
-    <label>Model
-      <input id="s-model" placeholder="claude-opus-5">
+    <label>Runs on
+      <select id="s-provider">
+        <option value="claude-code">My Claude Code login (uses my plan, no API key)</option>
+        <option value="api">Anthropic API key from .env (pay per use)</option>
+      </select>
       <small id="s-key-state"></small>
+    </label>
+    <label>Model for scoring and the top 10
+      <input id="s-model" placeholder="claude-opus-5">
+    </label>
+    <label>Model for per-person web research
+      <input id="s-research-model">
+      <small>The expensive step: 25 people, each with several searches. In Claude Code mode Opus costs about ten times Sonnet here, so Sonnet is the default. Leave blank for the default.</small>
     </label>
     <div class="dialog-actions">
       <button class="ghost" value="cancel" type="button" id="s-cancel">Cancel</button>

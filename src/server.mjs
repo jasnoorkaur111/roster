@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db, settings, events, guests, triage, profiles, rankings, notes, upsertEvent, replaceGuests } from "./db.mjs";
 import { LumaError, checkCookie, listMyEvents, getEventPublic, getGuestList, profileUrls, photoCandidates } from "./luma.mjs";
-import { DEFAULT_MODEL, RefusalError, triageGuests, researchGuest, rankEvent, mapLimit, addUsage, estimateCost } from "./ai.mjs";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, claudeCliAvailable, draftMeProfile, RefusalError, triageGuests, researchGuest, rankEvent, mapLimit, addUsage, estimateCost } from "./ai.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, "..");
@@ -35,6 +35,17 @@ function model() {
 }
 function selfId() {
   return settings.get("self_user_api_id") || process.env.SELF_USER_API_ID || null;
+}
+function provider() {
+  return settings.get("provider") || DEFAULT_PROVIDER;
+}
+function researchModel() {
+  const m = settings.get("research_model") || process.env.RESEARCH_MODEL;
+  if (m) return m;
+  return provider() === "claude-code" ? "claude-sonnet-5" : model();
+}
+function aiOpts() {
+  return { me: meProfile(), model: model(), provider: provider() };
 }
 
 // ---------- jobs ----------
@@ -114,14 +125,20 @@ async function pipelineGuests(job, id) {
   return gs;
 }
 
-async function pipelineTriage(job, id) {
+async function pipelineTriage(job, id, { force = false } = {}) {
   const ev = events.get(id);
-  const gs = guests.list(id);
-  if (!gs.length) throw new Error("No guests loaded yet.");
+  const all = guests.list(id);
+  if (!all.length) throw new Error("No guests loaded yet.");
+  const have = triage.map(id);
+  const gs = force ? all : all.filter(g => !have[g.user_api_id]);
+  if (!gs.length) {
+    logJob(job, "everyone already scored, skipping triage");
+    return [];
+  }
   job.total = gs.length;
-  logJob(job, `triaging ${gs.length} guests with ${model()}`);
+  logJob(job, `scoring ${gs.length} of ${all.length} guests with ${provider()}`);
   const { scores, usage } = await triageGuests({
-    event: ev, guests: gs, me: meProfile(), model: model(),
+    event: ev, guests: gs, ...aiOpts(),
     onProgress: (d, t) => { job.done = d; job.message = `triaged ${d}/${t}`; },
   });
   addUsage(job.usage, usage);
@@ -153,29 +170,40 @@ async function pipelineResearch(job, id, { top = 25, ids = null, force = false }
   if (!force) targets = targets.filter(g => !profiles.get(g.user_api_id));
   job.total = targets.length;
   job.done = 0;
-  logJob(job, `deep-researching ${targets.length} guests (4 at a time)`);
+  const parallel = provider() === "claude-code" ? 3 : 4;
+  logJob(job, `deep-researching ${targets.length} guests via ${provider()} (${parallel} at a time)`);
   const failures = [];
-  await mapLimit(targets, 4, async g => {
+  let fatal = null;
+  await mapLimit(targets, parallel, async g => {
+    if (fatal) return;
     try {
-      const { profile, usage } = await researchGuest({ guest: g, event: ev, me: meProfile(), model: model() });
-      profiles.set(g.user_api_id, profile, model());
+      const { profile, usage } = await researchGuest({ guest: g, event: ev, ...aiOpts(), model: researchModel() });
+      profiles.set(g.user_api_id, profile, `${provider()}:${researchModel()}`);
       addUsage(job.usage, usage);
     } catch (e) {
       failures.push(`${g.name}: ${e.message}`);
       console.error(`research failed for ${g.name}:`, e);
+      // Billing or auth problems will fail every remaining call; stop instead of burning through the list.
+      if (/credit balance|authentication|api key|not logged in|log in/i.test(e.message)) fatal = e;
     }
     job.done++;
     job.message = `researched ${job.done}/${job.total}${failures.length ? ` (${failures.length} failed)` : ""}`;
   });
   if (failures.length) logJob(job, `failed: ${failures.slice(0, 5).join(" | ")}${failures.length > 5 ? " ..." : ""}`);
+  if (fatal) throw fatal;
   return targets.length;
 }
 
-async function pipelineRank(job, id, topN = 10) {
+async function pipelineRank(job, id, topN = 10, { force = false } = {}) {
   const ev = events.get(id);
   const gs = guests.list(id);
   const tr = triage.map(id);
   const pr = profiles.mapFor(id);
+  const prev = rankings.get(id);
+  if (!force && prev?.ranked_at && !Object.values(pr).some(p => p.researched_at > prev.ranked_at)) {
+    logJob(job, "top 10 already current, skipping rank");
+    return prev;
+  }
   const candidates = gs
     .map(g => ({
       user_api_id: g.user_api_id, name: g.name, bio_short: g.bio_short,
@@ -187,7 +215,7 @@ async function pipelineRank(job, id, topN = 10) {
     .slice(0, 40);
   if (!candidates.length) throw new Error("Nothing to rank. Run triage first.");
   logJob(job, `ranking ${candidates.length} candidates`);
-  const { ranking, usage } = await rankEvent({ event: ev, candidates, me: meProfile(), model: model(), topN });
+  const { ranking, usage } = await rankEvent({ event: ev, candidates, ...aiOpts(), topN });
   addUsage(job.usage, usage);
   rankings.set(id, ranking);
   logJob(job, `top ${ranking.top.length} picked`);
@@ -237,6 +265,10 @@ route("GET", "/api/settings", () => ({
   cookie_hint: cookie() ? cookie().slice(0, 6) + "…" : null,
   me: meProfile(),
   model: model(),
+  research_model: settings.get("research_model") || null,
+  research_model_effective: researchModel(),
+  provider: provider(),
+  claude_cli: claudeCliAvailable(),
   self_user_api_id: selfId(),
   has_anthropic_key: !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
 }));
@@ -253,7 +285,16 @@ route("PUT", "/api/settings", async req => {
   if (typeof b.me === "string") settings.set("me", b.me);
   if (typeof b.model === "string" && b.model.trim()) settings.set("model", b.model.trim());
   if (typeof b.self_user_api_id === "string") settings.set("self_user_api_id", b.self_user_api_id.trim() || null);
+  if (b.provider === "claude-code" || b.provider === "api") settings.set("provider", b.provider);
+  if (typeof b.research_model === "string") settings.set("research_model", b.research_model.trim() || null);
   return { ok: true };
+});
+
+// Draft the "me" profile from the user's own Claude Code memory and CLAUDE.md files.
+route("POST", "/api/settings/draft-me", async () => {
+  if (!claudeCliAvailable()) throw new HttpError(400, "Claude Code CLI not found on this machine.");
+  const { profile, sources } = await draftMeProfile({ model: model() });
+  return { profile, sources };
 });
 
 route("GET", "/api/events", () => events.list());
@@ -294,9 +335,10 @@ route("POST", "/api/events/:id/guests", (req, p) => {
   return startJob("guests", p.id, job => pipelineGuests(job, p.id));
 });
 
-route("POST", "/api/events/:id/triage", (req, p) => {
+route("POST", "/api/events/:id/triage", async (req, p) => {
+  const b = await readJson(req);
   if (!events.get(p.id)) throw new HttpError(404, "Unknown event");
-  return startJob("triage", p.id, job => pipelineTriage(job, p.id));
+  return startJob("triage", p.id, job => pipelineTriage(job, p.id, { force: b.force !== false }));
 });
 
 route("POST", "/api/events/:id/research", async (req, p) => {
@@ -308,7 +350,7 @@ route("POST", "/api/events/:id/research", async (req, p) => {
 route("POST", "/api/events/:id/rank", async (req, p) => {
   const b = await readJson(req);
   if (!events.get(p.id)) throw new HttpError(404, "Unknown event");
-  return startJob("rank", p.id, job => pipelineRank(job, p.id, b.top || 10));
+  return startJob("rank", p.id, job => pipelineRank(job, p.id, b.top || 10, { force: b.force !== false }));
 });
 
 // One click: guests -> triage -> research top N -> rank
@@ -316,11 +358,12 @@ route("POST", "/api/events/:id/run", async (req, p) => {
   const b = await readJson(req);
   if (!events.get(p.id)) throw new HttpError(404, "Unknown event");
   const top = b.top || 25;
+  // Incremental: each step only does what is missing, so re-running costs nothing once done.
   return startJob("run", p.id, async job => {
     if (b.refetch || !guests.list(p.id).length) await pipelineGuests(job, p.id);
-    await pipelineTriage(job, p.id);
-    await pipelineResearch(job, p.id, { top });
-    await pipelineRank(job, p.id, 10);
+    await pipelineTriage(job, p.id, { force: !!b.force });
+    await pipelineResearch(job, p.id, { top, force: !!b.force });
+    await pipelineRank(job, p.id, 10, { force: !!b.force });
   });
 });
 
@@ -366,5 +409,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`roster running at http://localhost:${PORT}  (model: ${model()}, luma cookie: ${cookie() ? "set" : "missing"}, anthropic key: ${process.env.ANTHROPIC_API_KEY ? "set" : "missing"})`);
+  console.log(`roster running at http://localhost:${PORT}  (runs on: ${provider()}, model: ${model()}, luma cookie: ${cookie() ? "set" : "missing"}, anthropic key: ${process.env.ANTHROPIC_API_KEY ? "set" : "missing"})`);
 });

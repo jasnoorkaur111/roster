@@ -1,33 +1,71 @@
 # Roster
 
-Local web app. Pulls your Luma events, loads the guest list, researches every guest with Claude + web search, and picks the ten people you should find in the room.
+A local web app for people who go to a lot of Luma events. It pulls your events, loads the guest list, researches every guest, and picks the ten people you should find in the room, with an opener and an ask for each.
 
-## Run
+Everything runs on your machine. Guest data, research, and notes live in one SQLite file. Nothing is uploaded anywhere except the questions it asks Claude.
+
+## How it decides who matters
+
+The ranking is relative to **you**. In Settings there is a text box, "Who I am and who I want to meet". Every guest is scored against that text, so a health founder raising a pre-seed gets a different top ten than a recruiter or a journalist at the same event. Write it once, in priority order, and be specific. `me.example.md` shows the shape.
+
+If you use Claude Code, the "Draft it from my Claude Code memory" button writes a first version from what Claude already knows about you (your CLAUDE.md files and memory notes). Edit it and save.
+
+Pipeline for an event:
+
+1. Quick score of every guest from their Luma bio and links. No web, cheap.
+2. Deep web research on the top 25: role, company, what they are building or investing in, recent activity, sources, a public photo if one exists on a site they control.
+3. Final top 10 with a room strategy, why each person, what to say first, and the ask.
+
+Each guest gets a dossier you can open from the wall. Mark people as want-to-meet, met, or skip, and leave notes.
+
+## Run it
 
 ```bash
-cd ~/Desktop/roster
+git clone <this repo> roster && cd roster
+npm install
+cp .env.example .env
 npm start            # http://localhost:4747
 ```
 
-Needs Node 22.5+ (uses the built-in `node:sqlite`). Put `ANTHROPIC_API_KEY=...` in `.env`.
+Needs Node 22.5 or newer (it uses the built-in `node:sqlite`). No build step.
 
-## First use
+## Connect Luma
 
-1. Settings → paste your Luma session cookie. On luma.com open DevTools → Application → Cookies → copy the value of `luma.auth-session-key`. It is saved only in `data/roster.sqlite`. It expires now and then; paste a fresh one when "Pull my Luma events" fails.
-2. Settings → edit "Who I am and who I want to meet". Every score is relative to this text. Or edit `me.md` (copy from `me.example.md`).
-3. "Pull my Luma events" lists everything you are going to or hosting. Or paste any luma.com link.
-4. Open an event → "Load guests and rank". Pipeline: guest list → quick score of everyone (no web) → deep web research on the top 25 → final top 10 with openers and asks.
+Roster reads Luma the same way the luma.com web app does, with your session cookie. There is no official attendee-side API for guest lists.
 
-You only see a guest list when you are registered for the event and the host has the list turned on. Events added by link without a cookie only show the featured guests.
+1. Open luma.com while signed in and press Cmd+Option+I (Ctrl+Shift+I on Windows).
+2. In DevTools open the **Application** tab. If you don't see it, it's behind the `>>` button at the end of the tab strip.
+3. Left sidebar: Storage, Cookies, `https://luma.com`. Find the row named `luma.auth-session-key` and copy its **Value**.
+4. In Roster, open Settings and paste it into "Luma session cookie". Save. Roster checks it against Luma before storing it.
 
-## Cost
+Or put it in `.env` as `LUMA_COOKIE=...`. Either way it is stored only on your machine (`data/roster.sqlite` and `.env` are both gitignored). It expires every few weeks; when "Pull my Luma events" says you are not signed in, paste a fresh one.
 
-Opus 5 list price: roughly $0.12 per person deep-researched, a few cents per person for the quick score. A 300-person event with the top 25 researched is about $5. Change the model in Settings (e.g. `claude-sonnet-5`) to cut it.
+Two limits from Luma's side: you only see a guest list for events you are registered for, and only when the host has the guest list turned on. Roster labels hidden lists.
 
-## Layout
+Optional: put your own Luma user id (`usr-...`) in Settings so you are left out of your own guest lists. It is the id on your row in any list Roster loads.
 
-- `src/luma.mjs` Luma private API (endpoints verified from luma.com bundles, Sep 2026)
-- `src/ai.mjs` triage, research (web_search tool), ranking; structured outputs via zod
-- `src/db.mjs` SQLite tables: events, guests, triage, profiles, rankings, notes
-- `src/server.mjs` HTTP API + background jobs
-- `public/` the UI, no build step
+## Connect Claude
+
+Pick one in Settings under "Runs on".
+
+**Claude Code login (default).** Roster runs the research through `claude -p`, Claude Code's headless mode, so it uses your Claude plan and never touches an API key. You need Claude Code installed and signed in:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude          # sign in once, then quit
+```
+
+That's it. Be aware it counts against your plan's usage: a 300-person event with the top 25 researched is a meaningful slice of a session's quota on Opus.
+
+**Anthropic API key (optional).** Pay per use instead. Put `ANTHROPIC_API_KEY=...` in `.env`, restart, and choose "Anthropic API key" in Settings. On Opus 5 a 300-person event with the top 25 researched costs about $5; roughly $0.12 per person deep-researched. Switch the model to `claude-sonnet-5` in Settings to cut that.
+
+Neither option is billed for the other: in Claude Code mode the API key is stripped from the environment before `claude` runs.
+
+## Files
+
+- `src/luma.mjs` Luma's private web API (endpoints verified from luma.com bundles, Sep 2026). Public event lookup, your home feed, paginated guest lists.
+- `src/ai.mjs` triage, deep research, ranking. One set of prompts, two providers: Claude Code headless or the Anthropic SDK with server-side web search. Structured outputs via zod.
+- `src/db.mjs` SQLite: events, guests, triage, profiles, rankings, notes.
+- `src/server.mjs` HTTP API and background jobs.
+- `public/` the UI, plain HTML and JS.
+- `me.example.md` template for the profile text. `me.md` (gitignored) is read as the default if you'd rather keep it in a file than in Settings.

@@ -1,5 +1,5 @@
 const $ = s => document.querySelector(s);
-const state = { events: [], current: null, data: null, filter: "all", search: "", job: null, poll: null, selected: null };
+const state = { events: [], current: null, data: null, filter: "all", search: "", job: null, poll: null, selected: null, showAll: false };
 
 const api = async (method, path, body) => {
   const r = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body ? JSON.stringify(body) : undefined });
@@ -55,10 +55,18 @@ async function loadEvents() {
   renderRail();
 }
 
+function canLoad(e) {
+  return e.is_host || e.approval_status === "approved";
+}
 function renderRail() {
   const now = Date.now();
-  const up = state.events.filter(e => !e.start_at || new Date(e.start_at).getTime() >= now - 6 * 3600e3).sort((a, b) => (a.start_at || "").localeCompare(b.start_at || ""));
-  const past = state.events.filter(e => e.start_at && new Date(e.start_at).getTime() < now - 6 * 3600e3);
+  const hiddenCount = state.events.filter(e => !canLoad(e)).length;
+  const toggle = $("#rail-toggle");
+  toggle.hidden = !hiddenCount;
+  toggle.textContent = state.showAll ? "Hide the events I'm not approved for" : `Show ${hiddenCount} more (pending, invited, waitlisted)`;
+  const visible = state.showAll ? state.events : state.events.filter(canLoad);
+  const up = visible.filter(e => !e.start_at || new Date(e.start_at).getTime() >= now - 6 * 3600e3).sort((a, b) => (a.start_at || "").localeCompare(b.start_at || ""));
+  const past = visible.filter(e => e.start_at && new Date(e.start_at).getTime() < now - 6 * 3600e3);
   for (const [sel, list] of [["#events-upcoming", up], ["#events-past", past]]) {
     const box = $(sel);
     box.hidden = !list.length;
@@ -68,7 +76,7 @@ function renderRail() {
         return `<button class="event-item ${e.api_id === state.current ? "active" : ""}" data-id="${esc(e.api_id)}">
           <div class="event-date"><b>${d ? d.getDate() : "?"}</b><span>${d ? d.toLocaleString(undefined, { month: "short" }) : ""}</span></div>
           <div><div class="event-name">${esc(e.name)}</div>
-          <div class="event-count">${e.guest_count_loaded ? `${e.guest_count_loaded} guests loaded` : e.guest_count != null ? `${e.guest_count} going` : ""}${e.is_host ? " · hosting" : ""}${!e.show_guest_list && !e.is_host ? " · list hidden" : ""}</div></div>
+          <div class="event-count">${e.guest_count_loaded ? `${e.guest_count_loaded} guests loaded` : e.guest_count != null ? `${e.guest_count} going` : ""}${e.is_host ? " · hosting" : ""}${!canLoad(e) ? ` · ${e.approval_status || "not registered"}` : !e.show_guest_list ? " · list hidden" : ""}</div></div>
         </button>`;
       })
       .join("");
@@ -79,6 +87,7 @@ document.addEventListener("click", e => {
   const item = e.target.closest(".event-item");
   if (item) openEvent(item.dataset.id);
 });
+$("#rail-toggle").onclick = () => { state.showAll = !state.showAll; renderRail(); };
 
 // ---------- event view ----------
 async function openEvent(id) {
@@ -112,7 +121,11 @@ function renderEvent() {
     : !ev.show_guest_list && !ev.is_host ? "host hides the guest list"
     : ev.guest_count != null ? `${ev.guest_count} going, guest list not loaded yet` : "guest list not loaded yet";
   $("#ev-sub").innerHTML = `${esc(parts.join(" · "))}<br>${esc(status)}${ev.slug ? ` · <a href="https://luma.com/${esc(ev.slug)}" target="_blank" rel="noreferrer">open on Luma</a>` : ""}`;
-  $("#btn-run").textContent = guests.length ? (ranking ? "Rerun everything" : "Rank this room") : "Load guests and rank";
+  const researched = guests.filter(g => g.profile).length;
+  const scored = guests.filter(g => g.triage).length;
+  $("#btn-run").textContent = !guests.length ? "Load guests and rank"
+    : ranking && researched >= Math.min(25, guests.length) ? "Up to date, run again"
+    : scored || researched ? "Continue where it stopped" : "Rank this room";
 
   // top ten
   const top = $("#top");
@@ -386,16 +399,37 @@ async function openSettings() {
   $("#s-cookie-state").textContent = s.has_cookie ? "Cookie saved." : "No cookie yet.";
   $("#s-me").value = s.me;
   $("#s-model").value = s.model;
+  $("#s-research-model").value = s.research_model || "";
+  $("#s-research-model").placeholder = s.provider === "claude-code" ? "claude-sonnet-5 (default in Claude Code mode)" : "same as model";
   $("#s-self").value = s.self_user_api_id || "";
-  $("#s-key-state").textContent = s.has_anthropic_key ? "Anthropic key found in the environment." : "No ANTHROPIC_API_KEY found. Put it in roster/.env and restart.";
+  $("#s-provider").value = s.provider;
+  $("#s-key-state").textContent = [
+    s.claude_cli ? "Claude Code found on this machine." : "Claude Code not found; install it or use an API key.",
+    s.has_anthropic_key ? "ANTHROPIC_API_KEY is set in .env." : "No ANTHROPIC_API_KEY in .env.",
+  ].join(" ");
+  $("#s-draft").disabled = !s.claude_cli;
+  $("#s-draft-state").textContent = s.claude_cli ? "" : "Needs Claude Code.";
   $("#s-err").textContent = "";
   dlg.showModal();
 }
 $("#btn-settings").onclick = openSettings;
+$("#s-draft").onclick = async () => {
+  const b = $("#s-draft");
+  b.disabled = true;
+  $("#s-draft-state").textContent = "Reading your memory and instruction files… about a minute.";
+  try {
+    const r = await api("POST", "/api/settings/draft-me");
+    $("#s-me").value = r.profile;
+    $("#s-draft-state").textContent = `Drafted from ${r.sources.length ? r.sources.slice(0, 3).join(", ") : "your Claude Code context"}. Edit, then Save.`;
+  } catch (e) {
+    $("#s-draft-state").textContent = e.message;
+  }
+  b.disabled = false;
+};
 $("#s-cancel").onclick = () => dlg.close();
 $("#settings-form").onsubmit = async e => {
   e.preventDefault();
-  const body = { me: $("#s-me").value, model: $("#s-model").value, self_user_api_id: $("#s-self").value };
+  const body = { me: $("#s-me").value, model: $("#s-model").value, research_model: $("#s-research-model").value, self_user_api_id: $("#s-self").value, provider: $("#s-provider").value };
   if ($("#s-cookie").value.trim()) body.luma_cookie = $("#s-cookie").value.trim();
   try {
     await api("PUT", "/api/settings", body);
@@ -407,8 +441,8 @@ $("#settings-form").onsubmit = async e => {
 
 async function hint() {
   const s = await api("GET", "/api/settings");
-  $("#empty-hint").textContent = !s.has_anthropic_key
-    ? "Add ANTHROPIC_API_KEY to roster/.env, then restart."
+  $("#empty-hint").textContent = !s.claude_cli && !s.has_anthropic_key
+    ? "Install Claude Code, or add ANTHROPIC_API_KEY to roster/.env and restart."
     : !s.has_cookie ? "Start in Settings: paste your Luma session cookie." : "";
 }
 
