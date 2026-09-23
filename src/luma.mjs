@@ -192,6 +192,12 @@ export function normalizeGuest(e) {
   };
 }
 
+// Handles people paste from their own browser bar instead of a profile, e.g. x.com/home
+const RESERVED = new Set(["home", "i", "explore", "settings", "login", "signup", "search", "notifications", "messages", "compose", "intent", "share", "accounts", "p", "reel", "reels", "stories", "feed", "in", "company", "www", "http", "https"]);
+export function validHandle(h) {
+  return !!h && !RESERVED.has(String(h).toLowerCase().replace(/^in\//, "").split("/")[0]);
+}
+
 function cleanHandle(h, kind) {
   if (!h) return null;
   let s = String(h).trim();
@@ -205,16 +211,16 @@ function cleanHandle(h, kind) {
     .replace(/^(twitter|x|instagram|tiktok|youtube)\.com\//i, "")
     .replace(/^@/, "")
     .replace(/\/$/, "");
-  return s || null;
+  return validHandle(s) ? s : null;
 }
 
 export function profileUrls(g) {
   const urls = {};
-  if (g.linkedin) urls.linkedin = `https://www.linkedin.com/${g.linkedin}`;
-  if (g.twitter) urls.twitter = `https://x.com/${g.twitter}`;
-  if (g.instagram) urls.instagram = `https://instagram.com/${g.instagram}`;
-  if (g.tiktok) urls.tiktok = `https://tiktok.com/@${g.tiktok}`;
-  if (g.youtube) urls.youtube = `https://youtube.com/${g.youtube.startsWith("@") ? "" : "@"}${g.youtube}`;
+  if (g.linkedin && validHandle(g.linkedin)) urls.linkedin = `https://www.linkedin.com/${g.linkedin}`;
+  if (validHandle(g.twitter)) urls.twitter = `https://x.com/${g.twitter}`;
+  if (validHandle(g.instagram)) urls.instagram = `https://instagram.com/${g.instagram}`;
+  if (validHandle(g.tiktok)) urls.tiktok = `https://tiktok.com/@${g.tiktok}`;
+  if (validHandle(g.youtube)) urls.youtube = `https://youtube.com/${g.youtube.startsWith("@") ? "" : "@"}${g.youtube}`;
   if (g.website) urls.website = /^https?:\/\//.test(g.website) ? g.website : `https://${g.website}`;
   if (g.username) urls.luma = `https://luma.com/user/${g.username}`;
   return urls;
@@ -225,8 +231,8 @@ export function photoCandidates(g) {
   const out = [];
   const isDefault = !g.avatar_url || /avatars-default/.test(g.avatar_url);
   if (!isDefault) out.push(g.avatar_url);
-  if (g.twitter) out.push(`https://unavatar.io/x/${encodeURIComponent(g.twitter)}?fallback=false`);
-  if (g.instagram) out.push(`https://unavatar.io/instagram/${encodeURIComponent(g.instagram)}?fallback=false`);
+  if (validHandle(g.twitter)) out.push(`https://unavatar.io/x/${encodeURIComponent(g.twitter)}?fallback=false`);
+  if (validHandle(g.instagram)) out.push(`https://unavatar.io/instagram/${encodeURIComponent(g.instagram)}?fallback=false`);
   if (g.website) {
     try {
       const host = new URL(profileUrls(g).website).hostname;
