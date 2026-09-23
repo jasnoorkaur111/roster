@@ -50,6 +50,15 @@ a { color: inherit; }
 .event-count .picked { color: var(--badge); }
 .rail-toggle { margin: 4px 16px 16px; text-align: left; font-size: 12px; }
 
+/* notices */
+.notices { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.notices:empty { display: none; }
+.notice { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-2); font-size: 14px; }
+.notice.error { border-color: var(--bad); }
+.notice.warn { border-color: var(--badge); }
+.notice span { flex: 1; }
+.notice button { flex-shrink: 0; }
+
 /* main */
 .main { overflow-y: auto; padding: 28px 32px 80px; min-width: 0; }
 .empty { max-width: 560px; margin: 18vh auto 0; }
@@ -164,6 +173,8 @@ dialog h2 { font-size: 22px; margin-bottom: 14px; }
 dialog label { display: block; margin-bottom: 14px; font-weight: 600; font-size: 14px; }
 dialog label input, dialog label textarea { margin-top: 6px; font-weight: 400; }
 dialog small { display: block; color: var(--ink-3); font-weight: 400; margin-top: 5px; }
+dialog .opt { font-weight: 400; color: var(--ink-3); font-size: 12px; margin-left: 6px; }
+.d-stale { font-size: 12px; color: var(--ink-3); border: 1px dashed var(--line); border-radius: 8px; padding: 6px 10px; margin-top: 14px; }
 dialog code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .err { color: var(--bad); margin: 10px 0 0; min-height: 1em; }
@@ -178,10 +189,21 @@ dialog code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; }
 }
 @media (max-width: 760px) {
   .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; height: auto; min-height: 100vh; }
-  .rail { border-right: 0; border-bottom: 1px solid var(--line); max-height: 40vh; }
-  .main { padding: 20px 16px 60px; }
-  .event-head { flex-direction: column; }
-  .event-head h1 { font-size: 24px; }
-  .section-head { flex-direction: column; gap: 6px; }
+  .rail { border-right: 0; border-bottom: 1px solid var(--line); max-height: 38vh; }
+  .rail-actions { flex-direction: row; flex-wrap: wrap; }
+  .rail-actions .primary { flex: 1 1 100%; }
+  .main { padding: 16px 16px 60px; }
+  .event-head { flex-direction: column; gap: 12px; }
+  .event-head h1 { font-size: 22px; }
+  .event-actions { width: 100%; }
+  .event-actions .primary { flex: 1; }
+  .top-row { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+  .pick { flex: 0 0 150px; scroll-snap-align: start; }
   .wall-tools input { width: 100%; }
+  .wall-grid { grid-template-columns: 1fr; }
+  .dossier { width: 100vw; }
+  .dossier-body { padding: 18px 16px 60px; }
+  .d-head { grid-template-columns: 84px 1fr; }
+  .d-head .avatar { width: 84px; height: 84px; }
+  dialog { padding: 18px; }
 }

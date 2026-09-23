@@ -277,6 +277,7 @@ function renderDossier(g) {
     if (p.mutual?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>You have in common</h3><ul>${p.mutual.map(m => `<li>${esc(m)}</li>`).join("")}</ul></div>`);
     if (p.personal?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Outside work</h3><ul>${p.personal.map(f => `<li>${esc(f.text)}${safeUrl(f.source_url) ? `<a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">source</a>` : ""}</li>`).join("")}</ul></div>`);
     if (p.recent?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Recent</h3><ul>${p.recent.map(f => `<li>${esc(f.text)}${safeUrl(f.source_url) ? `<a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">source</a>` : ""}</li>`).join("")}</ul></div>`);
+    if (p.stale) body.insertAdjacentHTML("beforeend", `<div class="d-stale">Researched with an earlier version. "Research again" adds interests outside work and what you have in common.</div>`);
     if (safeUrl(p.photo_url)) body.insertAdjacentHTML("beforeend", `<div class="d-photo-note">Photo found at <a href="${esc(p.photo_url)}" target="_blank" rel="noreferrer">${esc(new URL(p.photo_url).hostname)}</a></div>`);
   } else if (g.triage) {
     body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Quick read</h3><p>${esc(g.triage.why)} <b>${g.triage.score}</b> · ${esc(g.triage.tag)}</p></div>`);
@@ -328,6 +329,7 @@ function watchJob(id) {
       clearInterval(state.poll);
       if (j.status === "error") toast(j.error, true);
       else { fill.style.width = "100%"; setTimeout(() => (box.hidden = true), 2500); }
+      loadNotices();
       await loadEvents();
       await refreshEvent();
       if (state.selected) openDossier(state.selected);
@@ -408,9 +410,13 @@ async function openSettings() {
   $("#s-self").value = s.self_user_api_id || "";
   $("#s-provider").value = s.provider;
   $("#s-key-state").textContent = [
-    s.claude_cli ? "Claude Code found on this machine." : "Claude Code not found; install it or use an API key.",
-    s.has_anthropic_key ? "ANTHROPIC_API_KEY is set in .env." : "No ANTHROPIC_API_KEY in .env.",
+    s.claude_cli ? "Claude Code: found." : "Claude Code: not installed.",
+    s.codex_cli ? "Codex: found." : "Codex: not installed.",
+    s.has_anthropic_key ? "API key: saved." : "API key: none.",
   ].join(" ");
+  $("#s-apikey").value = "";
+  $("#s-apikey").placeholder = s.api_key_hint ? `saved (${s.api_key_hint}), paste to replace` : "sk-ant-…";
+  $("#s-apikey-state").textContent = s.has_anthropic_key && !s.api_key_hint ? "Using ANTHROPIC_API_KEY from .env." : "";
   $("#s-draft").disabled = !s.claude_cli;
   $("#s-draft-state").textContent = s.claude_cli ? "" : "Needs Claude Code.";
   $("#s-err").textContent = "";
@@ -433,15 +439,25 @@ $("#s-draft").onclick = async () => {
 $("#s-cancel").onclick = () => dlg.close();
 $("#settings-form").onsubmit = async e => {
   e.preventDefault();
-  const body = { me: $("#s-me").value, model: $("#s-model").value, research_model: $("#s-research-model").value, self_user_api_id: $("#s-self").value, provider: $("#s-provider").value };
+  const body = { me: $("#s-me").value, model: $("#s-model").value, research_model: $("#s-research-model").value, self_user_api_id: $("#s-self").value, provider: $("#s-provider").value, anthropic_api_key: $("#s-apikey").value };
   if ($("#s-cookie").value.trim()) body.luma_cookie = $("#s-cookie").value.trim();
   try {
     await api("PUT", "/api/settings", body);
     dlg.close();
     toast("Saved");
     hint();
+    loadNotices();
   } catch (err) { $("#s-err").textContent = err.message; }
 };
+
+async function loadNotices() {
+  let st;
+  try { st = await api("GET", "/api/status"); } catch { return; }
+  $("#notices").innerHTML = st.notices
+    .map(n => `<div class="notice ${n.level}"><span>${esc(n.text)}</span>${n.action === "settings" ? '<button class="small" data-open-settings>Open Settings</button>' : ""}</div>`)
+    .join("");
+}
+$("#notices").addEventListener("click", e => { if (e.target.closest("[data-open-settings]")) openSettings(); });
 
 async function hint() {
   const s = await api("GET", "/api/settings");
@@ -453,6 +469,8 @@ async function hint() {
 (async () => {
   await loadEvents();
   await hint();
+  loadNotices();
+  setInterval(loadNotices, 5 * 60e3);
   // Open the soonest upcoming event that has guests loaded, else the most recent one.
   const now = Date.now();
   const loaded = state.events.filter(e => e.guest_count_loaded);

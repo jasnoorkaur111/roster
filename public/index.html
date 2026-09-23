@@ -28,6 +28,7 @@
   </aside>
 
   <main class="main" id="main">
+    <div class="notices" id="notices"></div>
     <div class="empty" id="empty">
       <h1>Who should I talk to tonight?</h1>
       <p>Pull your Luma events, load a guest list, and Roster researches every person and picks the ten worth finding in the room.</p>
@@ -105,10 +106,15 @@
     </label>
     <label>Runs on
       <select id="s-provider">
-        <option value="claude-code">My Claude Code login (uses my plan, no API key)</option>
-        <option value="api">Anthropic API key from .env (pay per use)</option>
+        <option value="claude-code">My Claude Code login (uses my Claude plan)</option>
+        <option value="codex">My Codex login (uses my ChatGPT plan)</option>
+        <option value="api">Anthropic API key (pay per use)</option>
       </select>
       <small id="s-key-state"></small>
+    </label>
+    <label>Anthropic API key <span class="opt">only for the API option</span>
+      <input id="s-apikey" type="password" placeholder="sk-ant-…" autocomplete="off">
+      <small>Stored only in the local database. Leave blank to keep the saved one; type a single dash to remove it. <span id="s-apikey-state"></span></small>
     </label>
     <label>Model for scoring and the top 10
       <input id="s-model" placeholder="claude-opus-5">

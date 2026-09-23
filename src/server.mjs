@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { db, settings, events, guests, triage, profiles, rankings, notes, upsertEvent, replaceGuests } from "./db.mjs";
 import { LumaError, checkCookie, listMyEvents, getEventPublic, getGuestList, profileUrls, photoCandidates } from "./luma.mjs";
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, claudeCliAvailable, draftMeProfile, RefusalError, triageGuests, researchGuest, rankEvent, mapLimit, addUsage, estimateCost } from "./ai.mjs";
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROVIDERS, claudeCliAvailable, codexCliAvailable, configureApiKey, hasApiKey, draftMeProfile, RefusalError, triageGuests, researchGuest, rankEvent, mapLimit, addUsage, estimateCost } from "./ai.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.join(here, "..");
@@ -38,6 +38,29 @@ function selfId() {
 }
 function provider() {
   return settings.get("provider") || DEFAULT_PROVIDER;
+}
+configureApiKey(settings.get("anthropic_api_key"));
+
+// Cookie health: set bad on any Luma auth failure, re-verified lazily (10 min cache) by /api/status.
+const cookieHealth = { ok: null, checked_at: 0, error: null };
+function markCookie(ok, error = null) {
+  cookieHealth.ok = ok;
+  cookieHealth.error = error;
+  cookieHealth.checked_at = Date.now();
+}
+async function cookieStatus(force = false) {
+  if (!cookie()) return { ok: false, missing: true };
+  if (!force && Date.now() - cookieHealth.checked_at < 10 * 60e3 && cookieHealth.ok !== null) return { ok: cookieHealth.ok, error: cookieHealth.error };
+  try {
+    await checkCookie(cookie());
+    markCookie(true);
+  } catch (e) {
+    markCookie(false, e.message);
+  }
+  return { ok: cookieHealth.ok, error: cookieHealth.error };
+}
+function isAuthError(e) {
+  return e instanceof LumaError && (e.status === 401 || e.status === 403 || /not signed in|sign in/i.test(e.message));
 }
 function researchModel() {
   const m = settings.get("research_model") || process.env.RESEARCH_MODEL;
@@ -93,7 +116,7 @@ function assembleEvent(id) {
     urls: profileUrls(g),
     photos: photoCandidates(g),
     triage: tr[g.user_api_id] ? { score: tr[g.user_api_id].score, tag: tr[g.user_api_id].tag, why: tr[g.user_api_id].why } : null,
-    profile: pr[g.user_api_id] || null,
+    profile: pr[g.user_api_id] ? { ...pr[g.user_api_id], stale: !("personal" in pr[g.user_api_id]) } : null,
     rank: rankById[g.user_api_id] || null,
     note: nt[g.user_api_id] ? { status: nt[g.user_api_id].status, note: nt[g.user_api_id].note } : null,
   }));
@@ -114,10 +137,20 @@ async function pipelineGuests(job, id) {
   if (!cookie()) throw new Error("Add your Luma session cookie in Settings first.");
   if (!ev.show_guest_list && !ev.is_host) throw new Error("The host hides the guest list for this event.");
   logJob(job, `fetching guest list for ${ev.name}`);
-  let gs = await getGuestList(ev.api_id, ev.ticket_key, cookie(), n => {
-    job.done = n;
-    job.message = `fetched ${n} guests`;
-  });
+  let gs;
+  try {
+    gs = await getGuestList(ev.api_id, ev.ticket_key, cookie(), n => {
+      job.done = n;
+      job.message = `fetched ${n} guests`;
+    });
+    markCookie(true);
+  } catch (e) {
+    if (isAuthError(e)) {
+      markCookie(false, e.message);
+      throw new Error("Luma says you are not signed in. Your cookie has expired; paste a fresh one in Settings.");
+    }
+    throw e;
+  }
   if (selfId()) gs = gs.filter(g => g.user_api_id !== selfId());
   replaceGuests(id, gs);
   job.total = job.done = gs.length;
@@ -270,7 +303,9 @@ route("GET", "/api/settings", () => ({
   provider: provider(),
   claude_cli: claudeCliAvailable(),
   self_user_api_id: selfId(),
-  has_anthropic_key: !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN),
+  has_anthropic_key: hasApiKey(),
+  api_key_hint: settings.get("anthropic_api_key") ? "…" + settings.get("anthropic_api_key").slice(-4) : null,
+  codex_cli: codexCliAvailable(),
 }));
 
 route("PUT", "/api/settings", async req => {
@@ -278,16 +313,40 @@ route("PUT", "/api/settings", async req => {
   if (typeof b.luma_cookie === "string") {
     const c = b.luma_cookie.trim().replace(/^luma\.auth-session-key=/, "");
     if (c) {
-      await checkCookie(c);
+      try {
+        await checkCookie(c);
+      } catch (e) {
+        throw new HttpError(400, isAuthError(e) ? "Luma rejected that cookie. Copy the Value of luma.auth-session-key again while signed in." : e.message);
+      }
       settings.set("luma_cookie", c);
+      markCookie(true);
     } else settings.set("luma_cookie", null);
   }
   if (typeof b.me === "string") settings.set("me", b.me);
   if (typeof b.model === "string" && b.model.trim()) settings.set("model", b.model.trim());
   if (typeof b.self_user_api_id === "string") settings.set("self_user_api_id", b.self_user_api_id.trim() || null);
-  if (b.provider === "claude-code" || b.provider === "api") settings.set("provider", b.provider);
+  if (PROVIDERS.includes(b.provider)) settings.set("provider", b.provider);
+  if (typeof b.anthropic_api_key === "string") {
+    const k = b.anthropic_api_key.trim();
+    if (k === "") { /* untouched */ } else if (k === "-") { settings.set("anthropic_api_key", null); configureApiKey(null); } else { settings.set("anthropic_api_key", k); configureApiKey(k); }
+  }
   if (typeof b.research_model === "string") settings.set("research_model", b.research_model.trim() || null);
   return { ok: true };
+});
+
+// Things the user should know right now. Polled by the UI.
+route("GET", "/api/status", async (req, p, url) => {
+  const notices = [];
+  const ck = await cookieStatus(url.searchParams.get("recheck") === "1");
+  if (ck.missing) notices.push({ level: "info", key: "cookie", text: "No Luma cookie yet. Paste it in Settings to pull your events.", action: "settings" });
+  else if (ck.ok === false) notices.push({ level: "error", key: "cookie", text: "Your Luma cookie has expired. Paste a fresh one in Settings.", action: "settings" });
+  const pv = provider();
+  if (pv === "claude-code" && !claudeCliAvailable()) notices.push({ level: "error", key: "provider", text: "Set to run on Claude Code, but the claude command was not found. Install it or switch provider in Settings.", action: "settings" });
+  if (pv === "codex" && !codexCliAvailable()) notices.push({ level: "error", key: "provider", text: "Set to run on Codex, but the codex command was not found. Install it or switch provider in Settings.", action: "settings" });
+  if (pv === "api" && !hasApiKey()) notices.push({ level: "error", key: "provider", text: "Set to run on an Anthropic API key, but none is saved. Add it in Settings.", action: "settings" });
+  const recentFail = [...jobs.values()].filter(j => j.status === "error" && Date.now() - new Date(j.finished_at).getTime() < 15 * 60e3).pop();
+  if (recentFail) notices.push({ level: "warn", key: "job", text: `Last ${recentFail.kind} run failed: ${recentFail.error}`, action: null });
+  return { notices, provider: pv, cookie: ck };
 });
 
 // Draft the "me" profile from the user's own Claude Code memory and CLAUDE.md files.
@@ -304,9 +363,18 @@ route("POST", "/api/events/sync", async req => {
   if (!cookie()) throw new HttpError(400, "Add your Luma session cookie in Settings first.");
   const periods = b.period === "all" ? ["future", "past"] : [b.period || "future"];
   let n = 0;
-  for (const p of periods) {
-    const list = await listMyEvents(cookie(), p);
-    for (const ev of list) { upsertEvent(ev, "home"); n++; }
+  try {
+    for (const p of periods) {
+      const list = await listMyEvents(cookie(), p);
+      for (const ev of list) { upsertEvent(ev, "home"); n++; }
+    }
+    markCookie(true);
+  } catch (e) {
+    if (isAuthError(e)) {
+      markCookie(false, e.message);
+      throw new HttpError(401, "Luma says you are not signed in. Your cookie has expired; paste a fresh one in Settings.");
+    }
+    throw e;
   }
   return { synced: n, events: events.list() };
 });
@@ -409,5 +477,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`roster running at http://localhost:${PORT}  (runs on: ${provider()}, model: ${model()}, luma cookie: ${cookie() ? "set" : "missing"}, anthropic key: ${process.env.ANTHROPIC_API_KEY ? "set" : "missing"})`);
+  console.log(`roster running at http://localhost:${PORT}  (runs on: ${provider()}, model: ${model()}, luma cookie: ${cookie() ? "set" : "missing"}, anthropic key: ${hasApiKey() ? "set" : "missing"}, claude: ${claudeCliAvailable()}, codex: ${codexCliAvailable()})`);
 });

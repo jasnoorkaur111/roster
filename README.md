@@ -40,15 +40,15 @@ Roster reads Luma the same way the luma.com web app does, with your session cook
 3. Left sidebar: Storage, Cookies, `https://luma.com`. Find the row named `luma.auth-session-key` and copy its **Value**.
 4. In Roster, open Settings and paste it into "Luma session cookie". Save. Roster checks it against Luma before storing it.
 
-Or put it in `.env` as `LUMA_COOKIE=...`. Either way it is stored only on your machine (`data/roster.sqlite` and `.env` are both gitignored). It expires every few weeks; when "Pull my Luma events" says you are not signed in, paste a fresh one.
+Or put it in `.env` as `LUMA_COOKIE=...`. Either way it is stored only on your machine (`data/roster.sqlite` and `.env` are both gitignored). It expires every few weeks; Roster checks it on load and shows a notice when it has, and every Luma error names the fix.
 
 Two limits from Luma's side: you only see a guest list for events you are registered for, and only when the host has the guest list turned on. Roster labels hidden lists.
 
 Optional: put your own Luma user id (`usr-...`) in Settings so you are left out of your own guest lists. It is the id on your row in any list Roster loads.
 
-## Connect Claude
+## Connect Claude (or Codex)
 
-Pick one in Settings under "Runs on".
+Pick one in Settings under "Runs on". Roster tells you in a notice bar at the top when the chosen one isn't set up, when your Luma cookie has expired, and when a run failed.
 
 **Claude Code login (default).** Roster runs the research through `claude -p`, Claude Code's headless mode, so it uses your Claude plan and never touches an API key. You need Claude Code installed and signed in:
 
@@ -59,9 +59,11 @@ claude          # sign in once, then quit
 
 That's it. Be aware it counts against your plan's usage. Per-person web research is the expensive step, so in this mode it runs on Sonnet by default while scoring and the final top 10 stay on Opus; both models are editable in Settings. A 300-person event with the top 25 researched is still a meaningful slice of a session's quota.
 
-**Anthropic API key (optional).** Pay per use instead. Put `ANTHROPIC_API_KEY=...` in `.env`, restart, and choose "Anthropic API key" in Settings. On Opus 5 a 300-person event with the top 25 researched costs about $5; roughly $0.12 per person deep-researched. Switch the model to `claude-sonnet-5` in Settings to cut that.
+**Codex login.** If you have a ChatGPT plan with Codex, install the Codex CLI (`npm install -g @openai/codex`, then `codex` once to sign in) and choose "My Codex login" in Settings. Roster runs `codex exec` with structured output and live web search. The Claude model fields are ignored in this mode; Codex uses its own default model.
 
-Neither option is billed for the other: in Claude Code mode the API key is stripped from the environment before `claude` runs.
+**Anthropic API key (optional).** Pay per use instead. Paste the key into Settings under "Anthropic API key" (stored only in the local database), or put `ANTHROPIC_API_KEY=...` in `.env`, then choose "Anthropic API key" in Settings. On Opus 5 a 300-person event with the top 25 researched costs about $5; roughly $0.12 per person deep-researched. Switch the model to `claude-sonnet-5` in Settings to cut that.
+
+No option is billed for another: in the Claude Code and Codex modes the API key is stripped from the environment before the CLI runs.
 
 ## Files
 

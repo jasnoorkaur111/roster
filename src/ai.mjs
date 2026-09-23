@@ -3,23 +3,37 @@ import { z } from "zod";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { spawn, execSync } from "node:child_process";
 import os from "node:os";
+import fs from "node:fs";
+import path from "node:path";
 import { profileUrls } from "./luma.mjs";
 
 export const DEFAULT_MODEL = process.env.MODEL || "claude-opus-5";
 
-export function claudeCliAvailable() {
+function cliAvailable(name) {
   try {
-    execSync("command -v claude", { stdio: "ignore" });
+    execSync(`command -v ${name}`, { stdio: "ignore" });
     return true;
   } catch {
     return false;
   }
 }
-export const DEFAULT_PROVIDER = claudeCliAvailable() ? "claude-code" : "api";
+export const claudeCliAvailable = () => cliAvailable("claude");
+export const codexCliAvailable = () => cliAvailable("codex");
+export const PROVIDERS = ["claude-code", "codex", "api"];
+export const DEFAULT_PROVIDER = claudeCliAvailable() ? "claude-code" : codexCliAvailable() ? "codex" : "api";
 
 let _client = null;
+let _apiKey = null;
+/** Key from Settings wins over the environment. Pass null to fall back to ANTHROPIC_API_KEY. */
+export function configureApiKey(key) {
+  _apiKey = key || null;
+  _client = null;
+}
+export function hasApiKey() {
+  return !!(_apiKey || process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+}
 function client() {
-  if (!_client) _client = new Anthropic();
+  if (!_client) _client = new Anthropic(_apiKey ? { apiKey: _apiKey } : {});
   return _client;
 }
 
@@ -142,6 +156,49 @@ async function ccStructured({ system, user, schema, webSearch, model, effort = "
   return parseClaudeJson(out, schema);
 }
 
+// ---------- Codex CLI provider ----------
+// `codex exec` on the user's ChatGPT login. Structured output via --output-schema, the final
+// message via -o, live web search via config. No system-prompt flag, so it is prepended.
+
+async function codexStructured({ system, user, schema, webSearch, model }) {
+  const tag = `roster-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const schemaFile = path.join(os.tmpdir(), `${tag}.schema.json`);
+  const outFile = path.join(os.tmpdir(), `${tag}.out.json`);
+  fs.writeFileSync(schemaFile, jsonSchemaFor(schema));
+  const args = [
+    "exec",
+    "--ephemeral", "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules",
+    "-s", "read-only",
+    "--output-schema", schemaFile,
+    "-o", outFile,
+  ];
+  if (webSearch) args.push("-c", 'web_search="live"');
+  else args.push("-c", 'web_search="disabled"');
+  if (model && /^(gpt|o\d|codex)/i.test(model)) args.push("-m", model);
+  args.push(`${system}\n\n${user}`);
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn("codex", args, { env: cleanEnv(), cwd: os.tmpdir(), stdio: ["ignore", "pipe", "pipe"] });
+      let stderr = "";
+      child.stderr.on("data", d => (stderr += d));
+      child.stdout.on("data", () => {});
+      child.on("error", reject);
+      child.on("close", code => (fs.existsSync(outFile) ? resolve() : reject(new Error(`codex exited ${code}: ${stderr.slice(-400) || "no output"}`))));
+    });
+    const raw = fs.readFileSync(outFile, "utf8");
+    const parsed = parseJson(raw, schema);
+    return { parsed, usage: { input: 0, output: 0, cache_read: 0, searches: 0, cost_usd: 0 } };
+  } finally {
+    for (const f of [schemaFile, outFile]) try { fs.unlinkSync(f); } catch {}
+  }
+}
+
+/** Route one structured call to the chosen provider (API calls are handled inline by each task). */
+function cliStructured(provider, opts) {
+  if (provider === "codex") return codexStructured(opts);
+  return ccStructured(opts);
+}
+
 const MeDraftSchema = z.object({
   profile: z.string().describe("The finished profile text, plain prose plus a numbered priority list"),
   sources: z.array(z.string()).describe("Which memory notes or files informed it"),
@@ -232,8 +289,8 @@ export async function triageGuests({ event, guests, me, model = DEFAULT_MODEL, p
   await mapLimit(chunks, 3, async chunk => {
     const user = triagePrompt(me, event, chunk);
     let scores;
-    if (provider === "claude-code") {
-      const r = await ccStructured({ system: SYSTEM_CORE, user, schema: TriageSchema, webSearch: false, model, effort: "medium", maxBudgetUsd: 3 });
+    if (provider !== "api") {
+      const r = await cliStructured(provider, { system: SYSTEM_CORE, user, schema: TriageSchema, webSearch: false, model, effort: "medium", maxBudgetUsd: 3 });
       addUsage(usage, r.usage);
       scores = r.parsed.scores;
     } else {
@@ -297,8 +354,8 @@ function researchPrompt(me, event, guest, maxSearches) {
 
 export async function researchGuest({ guest, event, me, model = DEFAULT_MODEL, provider = DEFAULT_PROVIDER, maxSearches = 6 }) {
   const user = researchPrompt(me, event, guest, maxSearches);
-  if (provider === "claude-code") {
-    const { parsed, usage } = await ccStructured({ system: SYSTEM_CORE, user, schema: ProfileSchema, webSearch: true, model, effort: "medium", maxBudgetUsd: 4 });
+  if (provider !== "api") {
+    const { parsed, usage } = await cliStructured(provider, { system: SYSTEM_CORE, user, schema: ProfileSchema, webSearch: true, model, effort: "medium", maxBudgetUsd: 4 });
     return { profile: parsed, usage };
   }
   const stream = client().messages.stream({
@@ -353,8 +410,8 @@ function rankPrompt(me, event, candidates, topN) {
 export async function rankEvent({ event, candidates, me, model = DEFAULT_MODEL, provider = DEFAULT_PROVIDER, topN = 10 }) {
   const user = rankPrompt(me, event, candidates, topN);
   let ranking, usage;
-  if (provider === "claude-code") {
-    const r = await ccStructured({ system: SYSTEM_CORE, user, schema: RankSchema, webSearch: false, model, effort: "high", maxBudgetUsd: 3 });
+  if (provider !== "api") {
+    const r = await cliStructured(provider, { system: SYSTEM_CORE, user, schema: RankSchema, webSearch: false, model, effort: "high", maxBudgetUsd: 3 });
     ranking = r.parsed;
     usage = r.usage;
   } else {
