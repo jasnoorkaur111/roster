@@ -293,7 +293,7 @@ route("PUT", "/api/settings", async req => {
 // Draft the "me" profile from the user's own Claude Code memory and CLAUDE.md files.
 route("POST", "/api/settings/draft-me", async () => {
   if (!claudeCliAvailable()) throw new HttpError(400, "Claude Code CLI not found on this machine.");
-  const { profile, sources } = await draftMeProfile({ model: model() });
+  const { profile, sources } = await draftMeProfile({ model: researchModel() });
   return { profile, sources };
 });
 

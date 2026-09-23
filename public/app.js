@@ -18,6 +18,7 @@ function toast(msg, bad = false) {
   toastTimer = setTimeout(() => (t.hidden = true), bad ? 6000 : 3000);
 }
 
+const safeUrl = u => (/^https?:\/\//i.test(String(u || "")) ? String(u) : null);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const initials = n => n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
 
@@ -29,7 +30,7 @@ function fmtDate(iso) {
 
 // photo with fallback chain: profile.photo_url, then luma avatar, then unavatar sources, then initials
 function photoEl(g, cls = "avatar") {
-  const list = [g.profile?.photo_url, ...(g.photos || [])].filter(Boolean);
+  const list = [g.profile?.photo_url, ...(g.photos || [])].map(safeUrl).filter(Boolean);
   const holder = document.createElement("div");
   holder.className = cls + " fallback";
   holder.textContent = initials(g.name);
@@ -88,7 +89,6 @@ document.addEventListener("click", e => {
   if (item) openEvent(item.dataset.id);
 });
 $("#rail-toggle").onclick = () => { state.showAll = !state.showAll; renderRail(); };
-$("#strategy").onclick = e => e.target.classList.toggle("open");
 
 // ---------- event view ----------
 async function openEvent(id) {
@@ -248,6 +248,7 @@ function renderDossier(g) {
   head.appendChild(photoEl(g));
   const links = Object.entries(g.urls || {})
     .concat(p ? [["github", p.links?.github], ...(p.links?.other || []).map(u => ["source", u])] : [])
+    .map(([k, u]) => [k, safeUrl(u)])
     .filter(([, u]) => u)
     .map(([k, u]) => `<a href="${esc(u)}" target="_blank" rel="noreferrer">${esc(k)}</a>`)
     .join("");
@@ -272,9 +273,11 @@ function renderDossier(g) {
   if (p) {
     body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Why they matter for you</h3><p>${esc(p.relevance.why)} <b>${p.relevance.score}</b></p><p style="color:var(--ink-2);margin-top:4px">${esc(p.relevance.angle)}</p></div>`);
     body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Who they are</h3><p>${esc(p.summary)}</p></div>`);
-    if (p.facts?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Facts</h3><ul>${p.facts.map(f => `<li>${esc(f.text)}${f.source_url ? `<a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">source</a>` : ""}</li>`).join("")}</ul></div>`);
-    if (p.recent?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Recent</h3><ul>${p.recent.map(f => `<li>${esc(f.text)}${f.source_url ? `<a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">source</a>` : ""}</li>`).join("")}</ul></div>`);
-    if (p.photo_url) body.insertAdjacentHTML("beforeend", `<div class="d-photo-note">Photo found at <a href="${esc(p.photo_url)}" target="_blank" rel="noreferrer">${esc(new URL(p.photo_url).hostname)}</a></div>`);
+    if (p.facts?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Facts</h3><ul>${p.facts.map(f => `<li>${esc(f.text)}${safeUrl(f.source_url) ? `<a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">source</a>` : ""}</li>`).join("")}</ul></div>`);
+    if (p.mutual?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>You have in common</h3><ul>${p.mutual.map(m => `<li>${esc(m)}</li>`).join("")}</ul></div>`);
+    if (p.personal?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Outside work</h3><ul>${p.personal.map(f => `<li>${esc(f.text)}${safeUrl(f.source_url) ? `<a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">source</a>` : ""}</li>`).join("")}</ul></div>`);
+    if (p.recent?.length) body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Recent</h3><ul>${p.recent.map(f => `<li>${esc(f.text)}${safeUrl(f.source_url) ? `<a href="${esc(f.source_url)}" target="_blank" rel="noreferrer">source</a>` : ""}</li>`).join("")}</ul></div>`);
+    if (safeUrl(p.photo_url)) body.insertAdjacentHTML("beforeend", `<div class="d-photo-note">Photo found at <a href="${esc(p.photo_url)}" target="_blank" rel="noreferrer">${esc(new URL(p.photo_url).hostname)}</a></div>`);
   } else if (g.triage) {
     body.insertAdjacentHTML("beforeend", `<div class="d-block"><h3>Quick read</h3><p>${esc(g.triage.why)} <b>${g.triage.score}</b> · ${esc(g.triage.tag)}</p></div>`);
   }

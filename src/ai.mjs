@@ -152,7 +152,7 @@ const MeDraftSchema = z.object({
  * their CLAUDE.md files and auto-memory. Runs in the user's home directory with normal
  * settings so that context loads, read-only tools only.
  */
-export async function draftMeProfile({ model } = {}) {
+export async function draftMeProfile({ model = "claude-sonnet-5" } = {}) {
   const args = [
     "-p",
     "--output-format", "json",
@@ -163,10 +163,10 @@ export async function draftMeProfile({ model } = {}) {
     "--permission-mode", "bypassPermissions",
     "--allowedTools", "Read,Glob,Grep",
     "--tools", "Read,Glob,Grep",
-    "--effort", "medium",
-    "--max-budget-usd", "2",
+    "--effort", "low",
+    "--max-budget-usd", "5",
+    "--model", model || "claude-sonnet-5",
   ];
-  if (model) args.push("--model", model);
   const prompt = `Write my "who I am and who I want to meet at events" profile for an event-networking tool. It is the prompt every guest gets scored against, so make it specific.
 
 Format:
@@ -268,6 +268,8 @@ const ProfileSchema = z.object({
   summary: z.string().describe("3-5 sentences on who they are and what they are working on now"),
   facts: z.array(z.object({ text: z.string(), source_url: z.string().nullable() })).describe("5-10 concrete facts with sources"),
   recent: z.array(z.object({ text: z.string(), source_url: z.string().nullable() })).describe("Recent activity: posts, launches, funding, talks (last ~6 months)"),
+  personal: z.array(z.object({ text: z.string(), source_url: z.string().nullable() })).describe("Outside work, only what they share publicly themselves: hobbies, sports, causes, hometown, communities, things they post about. Empty if nothing public. Never family, health, religion, politics, or addresses."),
+  mutual: z.array(z.string()).describe("Overlaps with ME: same school, city, community, investor, interest, or people in common. Empty if none."),
   links: z.object({
     linkedin: z.string().nullable(),
     twitter: z.string().nullable(),
@@ -290,7 +292,7 @@ function researchPrompt(me, event, guest, maxSearches) {
   const known = Object.entries(profileUrls(guest))
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
-  return `ME:\n${me}\n\n${eventBlock(event)}\n\nRESEARCH THIS GUEST. Use web search (at most ${maxSearches} searches, and fetch at most 2 full pages; prefer search snippets) to find who they are: current role and company, what they are building or investing in, recent activity, and a public photo if one exists on a site they control or a team page. Start from the known links. Quote sources as URLs. If you cannot confirm identity, keep to what the Luma record says and mark confidence low.\n\nLUMA RECORD:\nname: ${guest.name}\nbio: ${guest.bio_short || "(none)"}\n${known || "(no links)"}\nluma avatar: ${guest.avatar_url || "(none)"}`;
+  return `ME:\n${me}\n\n${eventBlock(event)}\n\nRESEARCH THIS GUEST. Use web search (at most ${maxSearches} searches, and fetch at most 2 full pages; prefer search snippets) to find who they are: current role and company, what they are building or investing in, recent activity, what they are into outside work if they share it publicly (rapport material, not private life), any overlap with ME, and a public photo if one exists on a site they control or a team page. Start from the known links. Quote sources as URLs. If you cannot confirm identity, keep to what the Luma record says and mark confidence low.\n\nLUMA RECORD:\nname: ${guest.name}\nbio: ${guest.bio_short || "(none)"}\n${known || "(no links)"}\nluma avatar: ${guest.avatar_url || "(none)"}`;
 }
 
 export async function researchGuest({ guest, event, me, model = DEFAULT_MODEL, provider = DEFAULT_PROVIDER, maxSearches = 6 }) {
@@ -317,7 +319,7 @@ export async function researchGuest({ guest, event, me, model = DEFAULT_MODEL, p
 // ---------- 3. Final ranking (top 10 from researched candidates) ----------
 
 const RankSchema = z.object({
-  strategy: z.string().describe("At most 3 short sentences, under 60 words: who to find first, how to pitch this room, who to skip. No lists, no parentheses."),
+  strategy: z.string().describe("Two sentences, under 45 words total: who to find first and how to pitch this room. Plain prose, no lists, no parentheses, no names beyond two."),
   top: z.array(
     z.object({
       user_api_id: z.string(),
@@ -338,6 +340,8 @@ function rankPrompt(me, event, candidates, topN) {
       p ? `headline: ${p.headline}` : `bio: ${c.bio_short || "(none)"}`,
       p ? `summary: ${p.summary}` : null,
       p ? `relevance: ${p.relevance.score} - ${p.relevance.why} | angle: ${p.relevance.angle}` : `triage: ${c.triage_score ?? "?"} - ${c.triage_why || ""}`,
+      p?.personal?.length ? `outside work: ${p.personal.map(x => x.text).join("; ")}` : null,
+      p?.mutual?.length ? `in common with ME: ${p.mutual.join("; ")}` : null,
       p ? `confidence: ${p.confidence}${p.identity_note ? ` (${p.identity_note})` : ""}` : null,
     ]
       .filter(Boolean)
