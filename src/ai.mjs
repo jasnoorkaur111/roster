@@ -317,7 +317,7 @@ export async function researchGuest({ guest, event, me, model = DEFAULT_MODEL, p
 // ---------- 3. Final ranking (top 10 from researched candidates) ----------
 
 const RankSchema = z.object({
-  strategy: z.string().describe("3-4 sentences: how ME should work this room, who to find first, what to skip"),
+  strategy: z.string().describe("At most 3 short sentences, under 60 words: who to find first, how to pitch this room, who to skip. No lists, no parentheses."),
   top: z.array(
     z.object({
       user_api_id: z.string(),

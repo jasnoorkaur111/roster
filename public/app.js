@@ -88,6 +88,7 @@ document.addEventListener("click", e => {
   if (item) openEvent(item.dataset.id);
 });
 $("#rail-toggle").onclick = () => { state.showAll = !state.showAll; renderRail(); };
+$("#strategy").onclick = e => e.target.classList.toggle("open");
 
 // ---------- event view ----------
 async function openEvent(id) {
