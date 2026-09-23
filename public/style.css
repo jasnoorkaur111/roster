@@ -38,6 +38,10 @@ a { color: inherit; }
 .event-item { display: grid; grid-template-columns: 40px 1fr; gap: 10px; padding: 8px; border-radius: 8px; cursor: pointer; text-align: left; background: none; border: 0; width: 100%; }
 .event-item:hover { background: var(--bg-3); }
 .event-item.active { background: var(--bg-3); outline: 1px solid var(--line); }
+#events-past { border-top: 1px solid var(--line); margin-top: 6px; }
+#events-past .event-item { opacity: .45; filter: saturate(.3); }
+#events-past .event-item:hover, #events-past .event-item.active { opacity: .85; filter: none; }
+#events-past .event-date b { color: var(--ink-2); }
 .event-date { text-align: center; line-height: 1.05; padding-top: 2px; }
 .event-date b { display: block; font-size: 18px; }
 .event-date span { font-size: 11px; color: var(--ink-3); }
